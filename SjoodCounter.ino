@@ -3,40 +3,52 @@ const int irPin = 5;                 // D1
 const int resetButtonPin = 12;      // D6
 
 int sujoodCount = 0;
-bool previousIRState = false;
+bool inSujood = false;
+unsigned long sujoodStartTime = 0;
+
 bool previousButtonState = HIGH;
 
 void setup() {
-  Serial.begin(115200);
+  Serial.begin(9600);
 
-  // إعداد الليدات
   for (int i = 0; i < 4; i++) {
     pinMode(ledPins[i], OUTPUT);
     digitalWrite(ledPins[i], LOW);
   }
 
   pinMode(irPin, INPUT);
-  pinMode(resetButtonPin, INPUT_PULLUP);  // مقاومة داخلية
+  pinMode(resetButtonPin, INPUT_PULLUP);
 
-  Serial.println("ESP8266 Ready. Press reset button or send 'r' to reset.");
+  Serial.println("ESP8266 Ready. Hold Sujood for 3 seconds to count.");
 }
 
 void loop() {
-  // قراءة حساس IR
-  bool currentIRState = digitalRead(irPin) == LOW;
+  bool irState = digitalRead(irPin) == LOW;  // LOW = يوجد جسم (سجود)
+  unsigned long currentTime = millis();
 
-  if (currentIRState && !previousIRState) {
+  // بداية السجود
+  if (irState && !inSujood) {
+    sujoodStartTime = currentTime;
+    inSujood = true;
+  }
+
+  // التحقق من استمرار السجود 3 ثوانٍ
+  if (inSujood && irState && (currentTime - sujoodStartTime >= 3000)) {
     sujoodCount++;
     Serial.print("Sujood Count: ");
     Serial.println(sujoodCount);
-
     updateLEDs(sujoodCount / 2);
+
+    // ننتظر حتى يرفع الشخص رأسه (ir = HIGH) قبل السماح بسجدة جديدة
+    while (digitalRead(irPin) == LOW) {
+      delay(50);
+      yield();
+    }
+    inSujood = false;
   }
-  previousIRState = currentIRState;
 
-  // قراءة زر التصفير
+  // التصفير بالزر
   bool currentButtonState = digitalRead(resetButtonPin);
-
   if (currentButtonState == LOW && previousButtonState == HIGH) {
     sujoodCount = 0;
     updateLEDs(0);
@@ -44,22 +56,22 @@ void loop() {
   }
   previousButtonState = currentButtonState;
 
-  // تصفير عبر Serial
+  // التصفير عبر Serial
   if (Serial.available()) {
     char c = Serial.read();
     if (c == 'r') {
       sujoodCount = 0;
       updateLEDs(0);
-      Serial.println("Counter Reset via Serial (r)");
+      Serial.println("Counter Reset via Serial");
     }
   }
 
   delay(50);
-  yield();  // مهم جداً لتجنّب WDT reset
+  yield();  // مهم لمنع WDT reset
 }
 
 void updateLEDs(int numOn) {
-  Serial.print("LED Status: ");
+  Serial.print("LEDs: ");
   for (int i = 0; i < 4; i++) {
     if (i < numOn) {
       digitalWrite(ledPins[i], HIGH);
@@ -70,6 +82,4 @@ void updateLEDs(int numOn) {
     }
   }
   Serial.println();
-  Serial.flush();
 }
-
